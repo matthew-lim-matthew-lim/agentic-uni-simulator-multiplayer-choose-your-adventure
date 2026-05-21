@@ -12,7 +12,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { useEffect, useMemo } from "react";
-import type { GraphAuthor, GraphNode } from "@/lib/game/graph";
+import type { GraphAuthor, GraphCrossing, GraphNode } from "@/lib/game/graph";
 import { StoryNode, type StoryNodeData } from "./StoryNode";
 import { layoutTree } from "./layout";
 
@@ -20,11 +20,13 @@ const nodeTypes = { story: StoryNode };
 
 export function StoryGraph({
   nodes,
+  crossings,
   onSelect,
   selectedNodeId,
 }: {
   nodes: GraphNode[];
   authors: GraphAuthor[];
+  crossings?: GraphCrossing[];
   onSelect?: (n: GraphNode) => void;
   selectedNodeId?: string | null;
 }) {
@@ -32,6 +34,7 @@ export function StoryGraph({
     <ReactFlowProvider>
       <InnerGraph
         nodes={nodes}
+        crossings={crossings}
         onSelect={onSelect}
         selectedNodeId={selectedNodeId}
       />
@@ -41,10 +44,12 @@ export function StoryGraph({
 
 function InnerGraph({
   nodes,
+  crossings,
   onSelect,
   selectedNodeId,
 }: {
   nodes: GraphNode[];
+  crossings?: GraphCrossing[];
   onSelect?: (n: GraphNode) => void;
   selectedNodeId?: string | null;
 }) {
@@ -75,7 +80,7 @@ function InnerGraph({
       };
     });
     const byId = new Map(nodes.map((n) => [n.id, n]));
-    const rfEdges: Edge[] = nodes
+    const parentEdges: Edge[] = nodes
       .filter((n) => n.parentId && byId.has(n.parentId))
       .map((n) => {
         const child = byId.get(n.id)!;
@@ -95,8 +100,33 @@ function InnerGraph({
           },
         };
       });
-    return { rfNodes, rfEdges };
-  }, [nodes, selectedNodeId]);
+
+    // Crossings → extra dashed edges between the two timelines.
+    const crossingEdges: Edge[] = (crossings ?? [])
+      .filter((c) => byId.has(c.nodeAId) && byId.has(c.nodeBId))
+      .map((c) => {
+        const a = byId.get(c.nodeAId)!;
+        const hue = a.authorHue;
+        return {
+          id: `cross-${c.nodeAId}-${c.nodeBId}`,
+          source: c.nodeAId,
+          target: c.nodeBId,
+          type: "straight",
+          animated: false,
+          style: {
+            stroke: `hsl(${hue}, 95%, 70%)`,
+            strokeWidth: 1.5,
+            strokeDasharray: "2 4",
+            opacity: 0.7,
+          },
+          label: `↔ ${c.location}`,
+          labelStyle: { fill: "var(--muted)", fontSize: 9 },
+          labelBgStyle: { fill: "var(--surface)" },
+        };
+      });
+
+    return { rfNodes, rfEdges: [...parentEdges, ...crossingEdges] };
+  }, [nodes, crossings, selectedNodeId]);
 
   useEffect(() => {
     const id = window.setTimeout(() => {

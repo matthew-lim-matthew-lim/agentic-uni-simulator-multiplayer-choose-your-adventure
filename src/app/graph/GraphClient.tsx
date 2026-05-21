@@ -8,7 +8,7 @@ import { StoryGraph } from "@/components/graph/StoryGraph";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { ContinueFromHereButton } from "@/components/game/ContinueFromHereButton";
-import type { GraphAuthor, GraphNode } from "@/lib/game/graph";
+import type { GraphAuthor, GraphCrossing, GraphNode } from "@/lib/game/graph";
 
 interface GraphPayload {
   characterId: string;
@@ -18,6 +18,7 @@ interface GraphPayload {
   currentNodeId: string | null;
   nodes: GraphNode[];
   authors: GraphAuthor[];
+  crossings: GraphCrossing[];
 }
 
 export function GraphClient({
@@ -112,6 +113,7 @@ export function GraphClient({
                 <StoryGraph
                   nodes={data.nodes}
                   authors={data.authors}
+                  crossings={data.crossings}
                   onSelect={(n) => setSelected(n)}
                   selectedNodeId={selected?.id}
                 />

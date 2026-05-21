@@ -29,6 +29,13 @@ export interface GraphAuthor {
   nodeCount: number;
 }
 
+export interface GraphCrossing {
+  nodeAId: string;
+  nodeBId: string;
+  location: string;
+  timeBucket: string;
+}
+
 export interface GraphResult {
   characterId: string;
   characterName: string;
@@ -37,15 +44,15 @@ export interface GraphResult {
   currentNodeId: string | null;
   nodes: GraphNode[];
   authors: GraphAuthor[];
+  crossings: GraphCrossing[];
 }
 
 /**
  * Returns the full graph centred on a character: all nodes authored under
  * this character (character_id = id) PLUS every ancestor of those nodes
  * (which may belong to other characters / authors when the player jumped
- * into someone else's story).
- *
- * The result is colored at the per-node level by author_user_id.
+ * into someone else's story). Also returns crossings touching any of the
+ * displayed nodes so the UI can draw them as extra edges.
  */
 export async function getCharacterGraph(
   supabase: SbServer,
@@ -66,7 +73,6 @@ export async function getCharacterGraph(
     .eq("id", character.user_id)
     .maybeSingle();
 
-  // 1. All nodes for this character (the persona).
   const { data: own, error: nErr } = await supabase
     .from("nodes")
     .select(
@@ -78,8 +84,6 @@ export async function getCharacterGraph(
   const byId = new Map<string, (typeof own)[number]>();
   for (const n of own ?? []) byId.set(n.id, n);
 
-  // 2. Walk up parents that fall outside this character to fill in cross-user
-  //    forks; we include up to 50 ancestor hops per branch.
   const wanted = new Set<string>();
   for (const n of own ?? []) {
     if (n.parent_id && !byId.has(n.parent_id)) wanted.add(n.parent_id);
@@ -108,27 +112,30 @@ export async function getCharacterGraph(
     hops += 1;
   }
 
-  // 3. Resolve author + character names in one shot.
-  const allNodes = [
-    ...(own ?? []),
-    ...externalNodes.values(),
-  ];
+  const allNodes = [...(own ?? []), ...externalNodes.values()];
+  const allNodeIds = allNodes.map((n) => n.id);
   const authorIds = Array.from(new Set(allNodes.map((n) => n.author_user_id)));
   const characterIds = Array.from(new Set(allNodes.map((n) => n.character_id)));
 
-  const { data: profiles } = await supabase
-    .from("profiles")
-    .select("id, display_name, hue")
-    .in("id", authorIds);
-  const profileMap = new Map(profiles?.map((p) => [p.id, p]));
+  const [profileRes, charRes, crossingsRes] = await Promise.all([
+    supabase
+      .from("profiles")
+      .select("id, display_name, hue")
+      .in("id", authorIds),
+    supabase
+      .from("characters")
+      .select("id, name, user_id")
+      .in("id", characterIds),
+    supabase
+      .from("crossings")
+      .select("node_a_id, node_b_id, location, time_bucket")
+      .or(
+        `node_a_id.in.(${allNodeIds.join(",")}),node_b_id.in.(${allNodeIds.join(",")})`
+      ),
+  ]);
+  const profileMap = new Map(profileRes.data?.map((p) => [p.id, p]));
+  const charMap = new Map(charRes.data?.map((c) => [c.id, c]));
 
-  const { data: chars } = await supabase
-    .from("characters")
-    .select("id, name, user_id")
-    .in("id", characterIds);
-  const charMap = new Map(chars?.map((c) => [c.id, c]));
-
-  // 4. Build the GraphNode list.
   const graphNodes: GraphNode[] = allNodes.map((n) => {
     const p = profileMap.get(n.author_user_id);
     const c = charMap.get(n.character_id);
@@ -152,7 +159,6 @@ export async function getCharacterGraph(
     };
   });
 
-  // 5. Authors legend.
   const authorCounts = new Map<string, number>();
   for (const g of graphNodes) {
     authorCounts.set(g.authorUserId, (authorCounts.get(g.authorUserId) ?? 0) + 1);
@@ -170,6 +176,14 @@ export async function getCharacterGraph(
     })
     .sort((a, b) => b.nodeCount - a.nodeCount);
 
+  const crossings: GraphCrossing[] =
+    crossingsRes.data?.map((c) => ({
+      nodeAId: c.node_a_id,
+      nodeBId: c.node_b_id,
+      location: c.location,
+      timeBucket: c.time_bucket,
+    })) ?? [];
+
   return {
     characterId: character.id,
     characterName: character.name,
@@ -178,6 +192,7 @@ export async function getCharacterGraph(
     currentNodeId: character.current_node_id,
     nodes: graphNodes,
     authors,
+    crossings,
   };
 }
 

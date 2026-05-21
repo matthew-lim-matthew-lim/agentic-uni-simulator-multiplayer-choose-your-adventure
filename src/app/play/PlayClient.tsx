@@ -8,6 +8,7 @@ import { Avatar } from "@/components/game/Avatar";
 import { ChoiceGrid } from "@/components/game/ChoiceGrid";
 import { SceneSlide } from "@/components/game/SceneSlide";
 import { StatBars } from "@/components/game/StatBar";
+import { CrossingBadges } from "@/components/game/CrossingBadge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import {
@@ -243,6 +244,10 @@ export function PlayClient() {
                   isLoading={loading || !scene}
                   onDone={() => setTypewriterDone(true)}
                 />
+
+                {scene && scene.crossedWithNodeIds.length > 0 && typewriterDone && (
+                  <CrossingBadges key={scene.nodeId} nodeIds={scene.crossedWithNodeIds} />
+                )}
 
                 {scene && (
                   <ChoiceGrid

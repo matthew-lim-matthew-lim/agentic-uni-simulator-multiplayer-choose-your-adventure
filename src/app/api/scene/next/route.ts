@@ -6,6 +6,10 @@ import {
 } from "@/lib/game/in-memory-session";
 import { appendDbScene } from "@/lib/game/db";
 import { getAncestry } from "@/lib/game/ancestry";
+import {
+  findCrossingCandidates,
+  persistCrossings,
+} from "@/lib/game/crossings";
 import { generateScene, isGroqConfigured } from "@/lib/llm/groq";
 import { buildSystemPrompt, buildTurnPrompt } from "@/lib/llm/prompt";
 import { getSupabaseServer, isSupabaseConfigured } from "@/lib/supabase/server";
@@ -64,8 +68,7 @@ export async function POST(req: Request) {
         );
       }
 
-      // Walk full ancestry (root -> current). 80k-token summarisation
-      // fallback kicks in transparently inside getAncestry.
+      // 1. Walk full ancestry (root -> current) with summarisation fallback.
       const ancestry = await getAncestry(
         supabase,
         user.id,
@@ -77,6 +80,15 @@ export async function POST(req: Request) {
         .select("location, game_time")
         .eq("id", character.current_node_id)
         .single();
+
+      // 2. Pre-LLM crossing candidates — other players' recent nodes at
+      //    this location / time bucket. The LLM will choose whether to
+      //    weave them in.
+      const crossingCandidates = await findCrossingCandidates(supabase, {
+        fromNodeId: character.current_node_id,
+        currentCharacterId: character.id,
+        ancestryNodeIds: ancestry.turns.map((t) => t.nodeId),
+      });
 
       const charSnapshot: CharacterSnapshot = {
         id: character.id,
@@ -94,7 +106,7 @@ export async function POST(req: Request) {
           character: charSnapshot,
           ancestry: ancestry.turns,
           ancestorSummary: ancestry.summary,
-          crossingCandidates: [],
+          crossingCandidates,
           action,
           isCustom,
         }),
@@ -107,6 +119,18 @@ export async function POST(req: Request) {
         chosenAction: action,
         scene,
       });
+
+      // 3. Persist actually-used crossings.
+      const validCrossedIds = scene.crossedWithNodeIds.filter((id) =>
+        crossingCandidates.some((c) => c.nodeId === id)
+      );
+      let crossingsInserted = 0;
+      if (validCrossedIds.length > 0) {
+        crossingsInserted = await persistCrossings(supabase, {
+          newNodeId: node.id,
+          crossedNodeIds: validCrossedIds,
+        });
+      }
 
       return NextResponse.json({
         mode: "db",
@@ -125,11 +149,12 @@ export async function POST(req: Request) {
           sceneText: node.scene_text,
           location: node.location,
           presetChoices: node.preset_choices,
-          crossedWithNodeIds: [],
+          crossedWithNodeIds: validCrossedIds,
           authorName: user.profile.display_name,
           authorHue: user.profile.hue,
           authorIsYou: true,
         },
+        crossingsInserted,
         ancestrySummarised:
           ancestry.summary !== undefined
             ? { kept: ancestry.turns.length, truncated: ancestry.truncatedAt }
@@ -138,7 +163,7 @@ export async function POST(req: Request) {
     }
   }
 
-  // In-memory demo path.
+  // In-memory demo path — no crossings, just the loop.
   const session = getMemorySession(characterId);
   if (!session) {
     return NextResponse.json(
