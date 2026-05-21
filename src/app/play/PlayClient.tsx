@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
-import { Clock, Loader2, MapPin, RefreshCcw } from "lucide-react";
+import { Clock, Loader2, MapPin, Plus, RefreshCcw } from "lucide-react";
 import { Avatar } from "@/components/game/Avatar";
 import { ChoiceGrid } from "@/components/game/ChoiceGrid";
 import { SceneSlide } from "@/components/game/SceneSlide";
@@ -35,11 +35,15 @@ interface SceneState {
   presetChoices: string[];
   crossedWithNodeIds: string[];
   authorName: string;
+  authorHue?: number;
   authorIsYou: boolean;
 }
 
+type Mode = "memory" | "db";
+
 export function PlayClient() {
-  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [mode, setMode] = useState<Mode>("memory");
+  const [characterId, setCharacterId] = useState<string | null>(null);
   const [character, setCharacter] = useState<CharacterState | null>(null);
   const [scene, setScene] = useState<SceneState | null>(null);
   const [loading, setLoading] = useState(true);
@@ -50,8 +54,39 @@ export function PlayClient() {
   useEffect(() => {
     if (startedRef.current) return;
     startedRef.current = true;
-    start();
+    bootstrap();
+    // bootstrap is stable for the lifetime of the component (singleton effect)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function bootstrap() {
+    setLoading(true);
+    setError(null);
+    setTypewriterDone(false);
+    try {
+      const res = await fetch("/api/character/current");
+      if (res.ok) {
+        const data = await res.json();
+        if (data.active) {
+          setMode(data.mode);
+          setCharacterId(data.active.characterId);
+          setCharacter(data.active.character);
+          setScene(data.active.scene);
+          if (data.active.scene) {
+            setLoading(false);
+            return;
+          }
+        }
+      } else if (res.status !== 401) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || `Failed: HTTP ${res.status}`);
+      }
+      await start();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setLoading(false);
+    }
+  }
 
   async function start() {
     setLoading(true);
@@ -64,10 +99,9 @@ export function PlayClient() {
         body: JSON.stringify({}),
       });
       const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || "Failed to start");
-      }
-      setSessionId(data.sessionId);
+      if (!res.ok) throw new Error(data.error || "Failed to start");
+      setMode(data.mode);
+      setCharacterId(data.characterId);
       setCharacter(data.character);
       setScene(data.scene);
     } catch (err) {
@@ -78,7 +112,7 @@ export function PlayClient() {
   }
 
   async function pick(action: string, isCustom: boolean) {
-    if (!sessionId || loading) return;
+    if (!characterId || loading) return;
     setLoading(true);
     setError(null);
     setTypewriterDone(false);
@@ -86,10 +120,11 @@ export function PlayClient() {
       const res = await fetch("/api/scene/next", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, action, isCustom }),
+        body: JSON.stringify({ characterId, action, isCustom }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Failed to advance");
+      setMode(data.mode);
       setCharacter(data.character);
       setScene(data.scene);
     } catch (err) {
@@ -109,9 +144,9 @@ export function PlayClient() {
     gameTime: new Date().toISOString(),
   };
 
-  const authorHue = scene
-    ? hueForId(scene.authorName || displayCharacter.id)
-    : undefined;
+  const authorHue =
+    scene?.authorHue ??
+    (scene ? hueForId(scene.authorName || displayCharacter.id) : undefined);
 
   return (
     <div className="flex flex-1 flex-col">
@@ -135,7 +170,7 @@ export function PlayClient() {
               </Button>
             </Link>
             <Button variant="secondary" size="sm" onClick={start}>
-              <RefreshCcw size={14} /> New life
+              <Plus size={14} /> New life
             </Button>
           </div>
         </div>
@@ -171,8 +206,13 @@ export function PlayClient() {
               <div className="font-medium text-[var(--foreground)] mb-1">
                 Tip
               </div>
-              Pick a tile, or type your own action. Every scene is generated
-              fresh — your full story is the prompt.
+              Pick a tile, or type your own action. The full story so far is
+              fed to the LLM — every prior scene shapes the next.
+              {mode === "memory" && (
+                <div className="mt-2 italic text-[var(--muted)]/80">
+                  Demo mode (no DB) — refresh and your life resets.
+                </div>
+              )}
             </Card>
           </aside>
 
@@ -184,7 +224,7 @@ export function PlayClient() {
                 </div>
                 <div className="text-sm text-[var(--muted)]">{error}</div>
                 <div className="mt-3">
-                  <Button variant="outline" size="sm" onClick={start}>
+                  <Button variant="outline" size="sm" onClick={bootstrap}>
                     <RefreshCcw size={14} /> Try again
                   </Button>
                 </div>

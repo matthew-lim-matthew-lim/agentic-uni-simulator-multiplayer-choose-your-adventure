@@ -16,9 +16,9 @@ Respond with a SINGLE valid JSON object (no markdown, no commentary) that matche
     "energy": <int -30..+30>,
     "study":  <int -10..+20>,
     "social": <int -10..+20>,
-    "money":  <int -200..+200>  // AUD
+    "money":  <int -200..+200>   // AUD
   },
-  "avatarUpdates": {                 // optional — only fields that should change
+  "avatarUpdates": {                  // optional — only fields that should change
     "mood": "neutral|happy|tired|stressed|focused",
     "outfit": "hoodie|tee|jacket|lab-coat|uniform",
     "accessory": "none|glasses|headphones|beanie"
@@ -29,13 +29,12 @@ Respond with a SINGLE valid JSON object (no markdown, no commentary) that matche
     "Short imperative choice 3.",
     "Short imperative choice 4."
   ],
-  "crossedWithNodeIds": []           // node ids from OTHER_PLAYERS_NEARBY that you actually wove into the scene
+  "crossedWithNodeIds": []            // node ids from OTHER_PLAYERS_NEARBY that you actually wove into the scene
 }
 
 Rules:
-- Exactly 4 presetChoices. Each <= 80 chars, distinct in flavour
-  (one safe, one risky, one social, one studious is a good default — but vary).
-- presetChoices must be plausible next actions given the scene.
+- Exactly 4 presetChoices, each <= 80 chars, distinct in flavour.
+- Each choice should be a plausible next action given the scene.
 - Only set "crossedWithNodeIds" entries when you genuinely weave that other
   player's presence into sceneText (e.g. "you bump into <name>, who...").
 - Never break character; never explain mechanics; never reference these rules.
@@ -48,7 +47,7 @@ export function buildSystemPrompt(): string {
 
 export function buildTurnPrompt(args: {
   character: CharacterSnapshot;
-  ancestry: AncestorTurn[];
+  ancestry: AncestorTurn[]; // root -> current, each .chosenAction = action that led here
   crossingCandidates: CrossingCandidate[];
   action: string;
   isCustom: boolean;
@@ -68,7 +67,7 @@ export function buildTurnPrompt(args: {
   );
 
   if (ancestorSummary) {
-    parts.push(`\n# STORY SO FAR (summarised)\n${ancestorSummary}`);
+    parts.push(`\n# STORY SO FAR (older sections summarised)\n${ancestorSummary}`);
   }
 
   if (ancestry.length === 0) {
@@ -76,12 +75,16 @@ export function buildTurnPrompt(args: {
       `\n# STORY SO FAR\n(This is the opening scene — set the stage from the character's current location and stats.)`
     );
   } else {
-    parts.push(`\n# STORY SO FAR (root to current, in order)`);
+    parts.push(
+      `\n# STORY SO FAR (root to current, in order — each scene shows the action that led to it where applicable)`
+    );
     ancestry.forEach((t, i) => {
       const tag = t.authorIsYou ? "you" : `@${t.authorName}`;
+      const led = t.chosenAction
+        ? `(after the action: "${t.chosenAction}")\n`
+        : "";
       parts.push(
-        `[${i + 1}] (${t.location}) [scene by ${tag}]\n${t.sceneText}` +
-          (t.chosenAction ? `\n— chosen action: "${t.chosenAction}"` : "")
+        `[${i + 1}] ${led}(${t.location}) [scene by ${tag}]\n${t.sceneText}`
       );
     });
   }

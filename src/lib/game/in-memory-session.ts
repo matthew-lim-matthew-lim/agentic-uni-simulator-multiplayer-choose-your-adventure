@@ -1,9 +1,9 @@
 /**
  * Per-process in-memory session store for the phase-1 LLM loop.
  *
- * Replaced by Supabase persistence in a later todo. We keep the API surface
- * shaped like the eventual DB-backed code so the route handlers don't need
- * to change much when we swap implementations.
+ * Used as a fallback when Supabase isn't configured. Logged-in players go
+ * through the DB-backed flow in src/lib/game/db.ts instead. We keep the
+ * API surface aligned so the route handlers can dispatch on auth state.
  */
 
 import { randomUUID } from "node:crypto";
@@ -24,9 +24,10 @@ interface MemoryTurn {
   authorIsYou: boolean;
   location: string;
   sceneText: string;
-  chosenAction: string | null;
+  chosenAction: string | null; // action that led TO this turn
   gameTime: Date;
   stats: Stats;
+  presetChoices: string[];
 }
 
 interface MemorySession {
@@ -51,7 +52,7 @@ globalThis.__unswSessions = sessions;
 
 const STARTING_GAME_TIME = new Date("2026-03-02T08:30:00+11:00");
 
-export interface PublicSession {
+export interface MemorySessionProjection {
   sessionId: string;
   character: CharacterSnapshot;
   ancestry: AncestorTurn[];
@@ -59,7 +60,7 @@ export interface PublicSession {
   latestChoices: string[];
 }
 
-export function createSession(opts: { characterName?: string } = {}): PublicSession {
+export function createMemorySession(opts: { characterName?: string } = {}): MemorySessionProjection {
   const id = randomUUID();
   const character = {
     name: opts.characterName?.trim() || "You",
@@ -72,22 +73,18 @@ export function createSession(opts: { characterName?: string } = {}): PublicSess
   return projectSession(id);
 }
 
-export function getSession(id: string): PublicSession | null {
+export function getMemorySession(id: string): MemorySessionProjection | null {
   if (!sessions.has(id)) return null;
   return projectSession(id);
 }
 
-export function appendTurn(args: {
+export function appendMemoryTurn(args: {
   sessionId: string;
-  chosenAction: string;
+  chosenAction: string | null;
   scene: LlmScene;
-}): PublicSession | null {
+}): MemorySessionProjection | null {
   const s = sessions.get(args.sessionId);
   if (!s) return null;
-
-  if (s.turns.length > 0) {
-    s.turns[s.turns.length - 1].chosenAction = args.chosenAction;
-  }
 
   const newStats = applyDeltas(s.character.stats, args.scene.statDeltas);
   s.character.stats = newStats;
@@ -108,14 +105,15 @@ export function appendTurn(args: {
     authorIsYou: true,
     location: args.scene.location,
     sceneText: args.scene.sceneText,
-    chosenAction: null,
+    chosenAction: args.chosenAction,
     gameTime: new Date(s.character.gameTime.getTime()),
     stats: { ...newStats },
+    presetChoices: args.scene.presetChoices,
   });
   return projectSession(s.id);
 }
 
-function projectSession(id: string): PublicSession {
+function projectSession(id: string): MemorySessionProjection {
   const s = sessions.get(id)!;
   const ancestry: AncestorTurn[] = s.turns.map((t) => ({
     nodeId: t.nodeId,
@@ -125,6 +123,7 @@ function projectSession(id: string): PublicSession {
     sceneText: t.sceneText,
     chosenAction: t.chosenAction,
   }));
+  const last = s.turns[s.turns.length - 1];
   return {
     sessionId: s.id,
     character: {
@@ -138,6 +137,6 @@ function projectSession(id: string): PublicSession {
     },
     ancestry,
     latestNode: ancestry[ancestry.length - 1] ?? null,
-    latestChoices: [],
+    latestChoices: last?.presetChoices ?? [],
   };
 }
