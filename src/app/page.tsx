@@ -1,8 +1,26 @@
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { SignInButton } from "@/components/auth/SignInButton";
+import { SignOutButton } from "@/components/auth/SignOutButton";
+import { UserBadge } from "@/components/auth/UserBadge";
+import { isSupabaseConfigured } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/supabase/get-user";
 
-export default function Home() {
+interface SearchParams {
+  authError?: string;
+  redirectTo?: string;
+}
+
+export default async function Home({
+  searchParams,
+}: {
+  searchParams: Promise<SearchParams>;
+}) {
+  const { authError, redirectTo } = await searchParams;
+  const supabaseReady = isSupabaseConfigured();
+  const user = supabaseReady ? await getSessionUser() : null;
+
   return (
     <div className="flex flex-1 flex-col">
       <header className="border-b border-[var(--border)]/50 backdrop-blur-sm sticky top-0 z-10 bg-[var(--background)]/70">
@@ -20,17 +38,31 @@ export default function Home() {
               </div>
             </div>
           </Link>
-          <nav className="flex items-center gap-2">
+          <nav className="flex items-center gap-3">
             <Link href="/explore">
               <Button variant="ghost" size="sm">
                 Explore stories
               </Button>
             </Link>
-            <Link href="/play">
-              <Button variant="primary" size="sm">
-                Start playing
-              </Button>
-            </Link>
+            {user ? (
+              <>
+                <UserBadge profile={user.profile} />
+                <SignOutButton />
+                <Link href="/play">
+                  <Button variant="primary" size="sm">
+                    Continue playing
+                  </Button>
+                </Link>
+              </>
+            ) : supabaseReady ? (
+              <SignInButton size="sm" />
+            ) : (
+              <Link href="/play">
+                <Button variant="primary" size="sm">
+                  Try demo mode
+                </Button>
+              </Link>
+            )}
           </nav>
         </div>
       </header>
@@ -51,19 +83,44 @@ export default function Home() {
               <p className="mt-6 text-lg text-[var(--muted)] max-w-xl leading-relaxed">
                 Wander the Quad, scrape through finals, join CSESoc, work
                 shifts at Anchor — every scene is freshly written by AI in
-                real time. Pick from four choices or type your own.
-                Branch off, jump back, or hop into a friend&apos;s story.
+                real time. Pick from four choices or type your own. Branch
+                off, jump back, or hop into a friend&apos;s story.
               </p>
+
+              {authError && (
+                <div className="mt-6 rounded-lg border border-[var(--danger)]/40 bg-[var(--danger)]/10 px-4 py-3 text-sm text-[var(--danger)]">
+                  Sign-in failed: {authError}
+                </div>
+              )}
+
               <div className="mt-8 flex flex-wrap gap-3">
-                <Link href="/play">
-                  <Button size="lg">Start a new life</Button>
-                </Link>
+                {user ? (
+                  <Link href={redirectTo || "/play"}>
+                    <Button size="lg">Continue your life</Button>
+                  </Link>
+                ) : supabaseReady ? (
+                  <SignInButton size="lg" redirectTo={redirectTo}>
+                    Sign in to start
+                  </SignInButton>
+                ) : (
+                  <Link href="/play">
+                    <Button size="lg">Try a life (demo mode)</Button>
+                  </Link>
+                )}
                 <Link href="/explore">
                   <Button variant="outline" size="lg">
                     See other players&apos; stories
                   </Button>
                 </Link>
               </div>
+
+              {!supabaseReady && (
+                <p className="mt-6 text-xs text-[var(--muted)]">
+                  Supabase isn&apos;t configured yet — demo mode runs in-memory
+                  on the server and resets every restart. See README for
+                  setup.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-3">
