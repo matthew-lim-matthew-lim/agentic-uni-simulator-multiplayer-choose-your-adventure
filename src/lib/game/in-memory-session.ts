@@ -42,7 +42,6 @@ interface MemorySession {
 }
 
 declare global {
-  // eslint-disable-next-line no-var
   var __unswSessions: Map<string, MemorySession> | undefined;
 }
 
