@@ -7,6 +7,7 @@ import { AuthorLegend } from "@/components/graph/AuthorLegend";
 import { StoryGraph } from "@/components/graph/StoryGraph";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { ContinueFromHereButton } from "@/components/game/ContinueFromHereButton";
 import type { GraphAuthor, GraphNode } from "@/lib/game/graph";
 
 interface GraphPayload {
@@ -19,7 +20,13 @@ interface GraphPayload {
   authors: GraphAuthor[];
 }
 
-export function GraphClient({ characterId }: { characterId: string }) {
+export function GraphClient({
+  characterId,
+  viewerCharacterId,
+}: {
+  characterId: string;
+  viewerCharacterId?: string | null;
+}) {
   const [data, setData] = useState<GraphPayload | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,6 +66,9 @@ export function GraphClient({ characterId }: { characterId: string }) {
     setLoading(true);
     setRefreshTick((t) => t + 1);
   };
+
+  const jumpCharacterId =
+    viewerCharacterId ?? (data && data.characterId) ?? null;
 
   return (
     <div className="flex flex-1 flex-col">
@@ -128,7 +138,9 @@ export function GraphClient({ characterId }: { characterId: string }) {
               </Card>
             )}
 
-            {selected && <NodeDetail node={selected} />}
+            {selected && (
+              <NodeDetail node={selected} characterId={jumpCharacterId} />
+            )}
           </aside>
         </div>
       </main>
@@ -136,7 +148,13 @@ export function GraphClient({ characterId }: { characterId: string }) {
   );
 }
 
-function NodeDetail({ node }: { node: GraphNode }) {
+function NodeDetail({
+  node,
+  characterId,
+}: {
+  node: GraphNode;
+  characterId: string | null;
+}) {
   const hue = node.authorHue;
   return (
     <Card className="p-4">
@@ -168,7 +186,7 @@ function NodeDetail({ node }: { node: GraphNode }) {
         {node.fullSceneText}
       </p>
 
-      <div className="border-t border-[var(--border)]/50 pt-3 space-y-2">
+      <div className="border-t border-[var(--border)]/50 pt-3 space-y-2 mb-4">
         <div className="text-[10px] uppercase tracking-wider text-[var(--muted)]">
           Choices offered here
         </div>
@@ -182,6 +200,21 @@ function NodeDetail({ node }: { node: GraphNode }) {
             </li>
           ))}
         </ul>
+      </div>
+
+      <div className="border-t border-[var(--border)]/50 pt-3 space-y-2">
+        <ContinueFromHereButton
+          characterId={characterId}
+          targetNodeId={node.id}
+          authorName={node.authorName}
+          authorIsYou={node.isYou}
+        />
+        <Link
+          href={`/node/${node.id}`}
+          className="block text-[11px] text-[var(--muted)] hover:text-[var(--foreground)]"
+        >
+          Open full-page view ↗
+        </Link>
       </div>
     </Card>
   );
